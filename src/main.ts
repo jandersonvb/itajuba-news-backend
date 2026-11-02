@@ -35,7 +35,9 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
   }
   app.enableShutdownHooks();
-  await app.listen(Number(process.env.PORT || 4000), '0.0.0.0');
+  // No host: Node listens on IPv6 and IPv4 when the machine has IPv6. Railway's private network
+  // is IPv6-only in environments created before 16/10/2025, so '0.0.0.0' would be unreachable there.
+  await app.listen(Number(process.env.PORT || 4000));
 }
 
 bootstrap().catch((error) => {
