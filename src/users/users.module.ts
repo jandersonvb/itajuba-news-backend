@@ -1,0 +1,12 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { AdminUsersController } from './admin-users.controller';
+import { UsersService } from './users.service';
+
+/** Staff accounts managed by admins. The User entity and its repository come from AuthModule. */
+@Module({
+  imports: [AuthModule],
+  controllers: [AdminUsersController],
+  providers: [UsersService],
+})
+export class UsersModule {}
