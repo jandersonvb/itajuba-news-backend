@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeepPartial, FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { DeepPartial, FindOptionsWhere, Raw, Repository } from 'typeorm';
 import type { StaffSession } from '../auth/auth.constants';
 import { CategoriesService } from '../categories/categories.service';
 import { PortalService } from '../portal/portal.service';
@@ -21,6 +21,25 @@ const UNIQUE_VIOLATION = '23505';
 
 /** Fields whose change makes the article "atualizada" (see Article.updatedAt). */
 const CONTENT_FIELDS = ['title', 'excerpt', 'content', 'imageUrl'] as const;
+
+/** Letters with accents (both cases) and their plain lowercase versions, for translate() in SQL. */
+const ACCENTED = 'áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ';
+const PLAIN = 'aaaaaeeeeiiiiooooouuuucnaaaaaeeeeiiiiooooouuuucn';
+
+/**
+ * Column condition of the public search, ignoring accents and case: "saude" finds "Saúde". The
+ * text's own % and _ are escaped, so they are plain characters and not LIKE wildcards. No index
+ * is used; the portal has few thousand articles, and the search is paged.
+ */
+const searchCondition = (text: string) => {
+  const plain = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const pattern = `%${plain.replace(/[\\%_]/g, '\\$&')}%`;
+  return Raw((column) => `translate(lower(${column}), :accented, :plain) LIKE :pattern`, {
+    accented: ACCENTED,
+    plain: PLAIN,
+    pattern,
+  });
+};
 
 @Injectable()
 export class ArticlesService {
@@ -38,10 +57,11 @@ export class ArticlesService {
       status: 'published',
       ...(category ? { categoryId: category } : {}),
     };
-    const where = search
+    const matches = search ? searchCondition(search) : null;
+    const where = matches
       ? [
-          { ...base, title: ILike(`%${search}%`) },
-          { ...base, excerpt: ILike(`%${search}%`) },
+          { ...base, title: matches },
+          { ...base, excerpt: matches },
         ]
       : base;
     const [items, total] = await this.articles.findAndCount({

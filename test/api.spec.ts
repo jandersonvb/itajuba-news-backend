@@ -44,6 +44,14 @@ async function createDataSource(): Promise<DataSource> {
   mem.public.registerFunction({ name: 'version', returns: DataType.text, implementation: () => 'PostgreSQL 17' });
   for (const name of ['gen_random_uuid', 'uuid_generate_v4'])
     mem.public.registerFunction({ name, returns: DataType.uuid, implementation: randomUUID, impure: true });
+  // PostgreSQL's translate(text, from, to), used by the accent-insensitive search.
+  mem.public.registerFunction({
+    name: 'translate',
+    args: [DataType.text, DataType.text, DataType.text],
+    returns: DataType.text,
+    implementation: (text: string, from: string, to: string) =>
+      [...text].map((c) => (from.includes(c) ? (to[[...from].indexOf(c)] ?? '') : c)).join(''),
+  });
   return mem.adapters.createTypeormDataSource(options);
 }
 
@@ -142,6 +150,24 @@ describe('API integrada — PostgreSQL (pg-mem como fallback local)', () => {
     expect(publicRead.body.publishedAt).toBeTruthy();
     const search = await api().get('/api/articles?search=Itajubá').expect(200);
     expect(search.body.total).toBe(1);
+    // Accents and case do not matter: people often type "itajuba" or "NOTICIA".
+    for (const text of ['itajuba', 'NOTICIA TESTE', 'materia de teste'])
+      expect(
+        (
+          await api()
+            .get('/api/articles?search=' + encodeURIComponent(text))
+            .expect(200)
+        ).body.total,
+      ).toBe(1);
+    // % and _ are plain characters, not wildcards.
+    expect(
+      (
+        await api()
+          .get('/api/articles?search=' + encodeURIComponent('%'))
+          .expect(200)
+      ).body.total,
+    ).toBe(0);
+    expect((await api().get('/api/articles?search=Not_cia').expect(200)).body.total).toBe(0);
 
     await api()
       .patch('/api/admin/articles/' + create.body.id)
